@@ -5,20 +5,17 @@ import (
 	"fmt"
 	"sync"
 )
-
 var mu sync.Mutex
-
 var count int
 
 func main() {
-	http.HandleFunc("/count", viewCount)
+	http.HandleFunc("/", testHandle)
 	http.ListenAndServe("localhost:8000", nil)
 }
 
-
-func viewCount(w http.ResponseWriter, r *http.Request){
+func testHandle(w http.ResponseWriter, r *http.Request){
 	mu.Lock()
 	count++
+	fmt.Fprintf(w, "hello world, count is %d" , count)
 	mu.Unlock()
-	fmt.Fprintf(w, "Count %d\n", count)
 }
