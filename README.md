@@ -1,2 +1,2 @@
 # LearnGo
-Learn golang, mark some demo
+Learn golang, mark some demo.
