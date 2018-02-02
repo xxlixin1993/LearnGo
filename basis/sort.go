@@ -14,10 +14,10 @@ func main() {
 	testS = append(testS, "2")
 	fmt.Println(testS)
 	// asc
-	sort.Sort(StringSlice(testS))
+	sort.Sort(testS)
 	fmt.Println(testS)
 	// desc
-	sort.Sort(sort.Reverse(StringSlice(testS)))
+	sort.Sort(sort.Reverse(testS))
 	fmt.Println(testS)
 }
 
