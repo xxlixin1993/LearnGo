@@ -15,7 +15,7 @@ func main() {
 	go func() {
 		server = &http.Server{
 			Addr:         "127.0.0.1:4321",
-			Handler:      getServerMux(),
+			Handler:      getServerMux(), // or &LHandle{}表示匹配所有路由到这个handler
 			ReadTimeout:  time.Duration(3) * time.Second,
 			WriteTimeout: time.Duration(3) * time.Second,
 		}
