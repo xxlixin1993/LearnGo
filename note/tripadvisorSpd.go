@@ -1,4 +1,4 @@
-// tripadvisor
+// 抓取tripadvisor网站游记
 package main
 
 import (
@@ -10,19 +10,27 @@ import (
 	"sync"
 	"github.com/PuerkitoBio/goquery"
 	"github.com/olivere/elastic"
-	"os"
 	"context"
+	"os"
 )
 
-// 要抓取的url ex: https://www.tripadvisor.cn/TourismBlog-t6598
-var tripadvisorDetail = "https://www.tripadvisor.cn/TourismBlog-t"
-// 要抓取的游记最大id
-var tripadvisorTotal = 3
-// 起多少个goroutine
-var goroutineTotal = 1
+var (
+	// 要抓取的游记最大id
+	tripadvisorTotalId = 3
 
-var esClient *elastic.Client
+	// 起多少个goroutine去抓取
+	fetchGoroutineTotal = 3
 
+	// 要抓取的url ex: https://www.tripadvisor.cn/TourismBlog-t6598
+	tripadvisorDetail = "https://www.tripadvisor.cn/TourismBlog-t"
+
+	// es client
+	esClient *elastic.Client
+
+	tPool map[int]*Tripadvisor
+)
+
+// es 索引
 const ktripadvisorTitleIndex = "tti"
 
 type Tripadvisor struct {
@@ -60,34 +68,50 @@ func main() {
 	fmt.Printf("time: %f", secs)
 }
 
-func doTripadvisor() {
-	t := &Tripadvisor{
+func newTripadvisor() *Tripadvisor {
+	return &Tripadvisor{
 		urlChan: make(chan string),
 		done:    make(chan int),
 	}
+}
 
-	esc := &EsChannel{
+func newEsChannel() *EsChannel {
+	return &EsChannel{
 		esChan: make(chan *EsContent),
 		done:   make(chan int),
 	}
-	esc.esg.Add(1)
-	go esc.output()
-
-	for gnum := 0; gnum < goroutineTotal; gnum ++ {
-		t.twg.Add(1)
-		go t.fetchTripadvisor(esc)
-	}
-
-	for i := 1; i <= tripadvisorTotal; i++ {
-		t.urlChan <- tripadvisorDetail + strconv.Itoa(i)
-	}
-
-	close(t.done)
-	t.twg.Wait()
-	close(esc.done)
-	esc.esg.Wait()
 }
 
+// 开始获取页面信息
+func doTripadvisor() {
+	tPool = make(map[int]*Tripadvisor)
+
+	esChan := newEsChannel()
+
+	esChan.esg.Add(1)
+	go esChan.output()
+
+	for gnum := 0; gnum < fetchGoroutineTotal; gnum ++ {
+		tPool[gnum] = newTripadvisor()
+
+		tPool[gnum].twg.Add(1)
+		go tPool[gnum].fetchTripadvisor(esChan)
+	}
+
+	for i := 1; i <= tripadvisorTotalId; i++ {
+		tPool[i%fetchGoroutineTotal].urlChan <- tripadvisorDetail + strconv.Itoa(i)
+	}
+
+	for key := range tPool {
+		close(tPool[key].done)
+		tPool[key].twg.Wait()
+	}
+
+	close(esChan.done)
+	esChan.esg.Wait()
+}
+
+// 写入es
 func (esc *EsChannel) output() {
 	defer esc.esg.Done()
 	for {
@@ -98,6 +122,17 @@ func (esc *EsChannel) output() {
 		case data := <-esc.esChan:
 			// 判断必须有title才能输出到es
 			// 需要先建es index和中文分词option
+			// 1. curl -XPUT http://localhost:9200/tti
+			// 2. curl -XPOST http://localhost:9200/tti/fulltext/_mapping -H 'Content-Type:application/json' -d'
+			//{
+			// "properties": {
+			//     "content": {
+			//         "type": "text",
+			//         "analyzer": "ik_max_word",
+			//         "search_analyzer": "ik_max_word"
+			//     }
+			// }
+			//}'
 			if data.Title != "" {
 				put1, err := esClient.Index().Index(ktripadvisorTitleIndex).Type("fulltext").
 					BodyJson(data).Do(context.Background())
@@ -111,7 +146,8 @@ func (esc *EsChannel) output() {
 	}
 }
 
-func (t *Tripadvisor) fetchTripadvisor(esc *EsChannel) {
+// 抓取
+func (t *Tripadvisor) fetchTripadvisor(esChan *EsChannel) {
 	defer t.twg.Done()
 	for {
 		select {
@@ -143,8 +179,7 @@ func (t *Tripadvisor) fetchTripadvisor(esc *EsChannel) {
 				Content: s.Text(),
 				Url:     url,
 			}
-			//fmt.Println(esContent)
-			esc.esChan <- esContent
+			esChan.esChan <- esContent
 		}
 	}
 }
