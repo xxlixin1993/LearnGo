@@ -9,6 +9,9 @@ import (
 	"log"
 	"sync"
 	"github.com/PuerkitoBio/goquery"
+	"github.com/olivere/elastic"
+	"os"
+	"context"
 )
 
 // 要抓取的url ex: https://www.tripadvisor.cn/TourismBlog-t6598
@@ -17,6 +20,10 @@ var tripadvisorDetail = "https://www.tripadvisor.cn/TourismBlog-t"
 var tripadvisorTotal = 3
 // 起多少个goroutine
 var goroutineTotal = 1
+
+var esClient *elastic.Client
+
+const ktripadvisorTitleIndex = "tti"
 
 type Tripadvisor struct {
 	urlChan chan string
@@ -38,6 +45,13 @@ type EsChannel struct {
 
 func main() {
 	start := time.Now()
+
+	var esErr error
+	esClient, esErr = elastic.NewClient()
+	if esErr != nil {
+		log.Fatalf("es client err : %s", esErr)
+		os.Exit(10)
+	}
 
 	doTripadvisor()
 
@@ -81,11 +95,20 @@ func (esc *EsChannel) output() {
 		case <-esc.done:
 			close(esc.esChan)
 			return
-		case <-esc.esChan:
-			// TODO output es
+		case data := <-esc.esChan:
+			// 判断必须有title才能输出到es
+			// 需要先建es index和中文分词option
+			if data.Title != "" {
+				put1, err := esClient.Index().Index(ktripadvisorTitleIndex).Type("fulltext").
+					BodyJson(data).Do(context.Background())
+
+				if err != nil {
+					panic(err)
+				}
+				fmt.Printf("Indexed tti  %s to index %s, type %s\n", put1.Id, put1.Index, put1.Type)
+			}
 		}
 	}
-
 }
 
 func (t *Tripadvisor) fetchTripadvisor(esc *EsChannel) {
@@ -120,7 +143,7 @@ func (t *Tripadvisor) fetchTripadvisor(esc *EsChannel) {
 				Content: s.Text(),
 				Url:     url,
 			}
-			fmt.Println(esContent)
+			//fmt.Println(esContent)
 			esc.esChan <- esContent
 		}
 	}
