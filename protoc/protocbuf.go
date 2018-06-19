@@ -39,5 +39,5 @@ func WritePb() ([]byte, error){
 }
 
 func ReadPb(data []byte, person *protocolbuf.Person) (error) {
-	return proto.Unmarshal(data, person);
+	return proto.Unmarshal(data, person)
 }
